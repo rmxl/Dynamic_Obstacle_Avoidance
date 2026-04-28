@@ -1,0 +1,696 @@
+Ground Robot Waypoint Navigation
+Avoiding Dynamic Obstacles via MPC, IRL, and Imitation Learning
+
+Markov Minds
+Team Markov Minds
+
+April 16, 2026
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+1 / 19
+
+Outline
+
+1
+
+Problem Overview
+
+2
+
+Problem Formalization
+
+3
+
+Method 1: Model Predictive Control (MPC)
+
+4
+
+Method 2: Inverse Reinforcement Learning (IRL)
+
+5
+
+Method 3: Behaviour Cloning & DAgger
+
+6
+
+Conclusion
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+2 / 19
+
+Motivation
+Autonomous ground robots must navigate
+from a start to a goal through a sequence of
+waypoints
+
+Goal
+w3
+
+Real-world environments contain dynamic
+obstacles (pedestrians, other robots, moving
+objects)
+Static planners fail to react in time — we need
+reactive, predictive, and learnable policies
+Three complementary approaches are studied:
+1
+2
+3
+
+w2
+O2
+O1
+w1
+
+Start
+Environment
+
+Model Predictive Control (MPC)
+Inverse Reinforcement Learning (IRL)
+Behaviour Cloning & DAgger
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+3 / 19
+
+State, Action, and Environment
+Robot State
+st = (xt , yt , θt , vt ) ∈ S
+where (xt , yt ) is position, θt is heading, vt is speed.
+
+Action Space
+ut = (ωt , at ) ∈ U
+where ωt is angular velocity (steering) and at is linear acceleration.
+
+Dynamic Obstacles
+(i)
+
+(i)
+
+o
+Ot = {(pt , ṗt , r (i) )}N
+i=1
+
+(i)
+
+(i)
+
+Each obstacle i has position pt , velocity ṗt , and radius r (i) .
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+4 / 19
+
+Scenario Modeling and Environment Setup
+
+Episode Structure
+
+Modeling Assumptions
+
+Robot: st = (xt , yt , θt , vt )
+
+Circular obstacles: radius r (i)
+
+Waypoints: W = {w1 , w2 , w3 }
+
+Full observability of pt , ṗt
+
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+(i)
+
+Obstacles: Ot = {(pt , ṗt , r (i) )}2i=1
+
+Prediction: p̂t+k = pt + k∆t ṗt
+
+Switching: ∥pt − wk ∥ ≤ ϵ
+
+Episode: s0 ∼ p(s0 ), terminate on
+success/collision
+
+Scenario Diversity
+(i)
+
+(i)
+
+Waypoints wk , obstacle initial states (p0 , ṗ0 ), and velocities are randomized across episodes.
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+5 / 19
+
+Unicycle Dynamics and Waypoint Task
+Unicycle Kinematic Model
+  
+
+ẋ
+v cos θ
+ẏ   v sin θ 
+ =
+
+ θ̇   ω 
+a
+v̇
+Discretized with timestep ∆t: st+1 = f (st , ut ).
+
+Waypoint Navigation Task
+Given a sequence of waypoints W = {w1 , w2 , . . . , wK }:
+Robot must visit each wk within tolerance ϵ in order
+(i)
+
+Must avoid all dynamic obstacles: ∥pt − pt ∥ > r (i) + rrobot ∀ i, t
+Respect actuation limits: |ωt | ≤ ωmax , vmin ≤ vt ≤ vmax
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+6 / 19
+
+Formal Objective
+
+Constrained Optimal Control Problem
+" T
+#
+X
+π ∗ = arg min E
+c(st , ut )
+π
+
+subject to
+
+st+1 = f (st , ut ),
+
+c = λ1 ∥sxy − wk ∥2 + λ2 ∥u∥2 +
+| {z }
+|
+{z
+}
+control effort
+
+Markov Minds (Team Markov Minds)
+
+ut ∈ U,
+
+g (st , Ot ) ≤ 0
+
+Collision constraint g :
+
+Cost function c(s, u):
+
+waypoint tracking
+
+t=0
+
+λ3 cobs
+| {z }
+
+obstacle penalty
+
+(i)
+
+g (st , Ot ) = r (i) + rrobot − ∥pt − pt ∥
+Infeasible if g > 0 for any i.
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+7 / 19
+
+MPC — Core Idea
+At each timestep t, solve a finite-horizon
+optimization over prediction horizon H
+Apply only the first action u∗t , then re-plan at
+t +1
+
+Horizon H
+
+(i)
+
+Incorporates obstacle predictions p̂t+k over
+horizon
+Handles constraints explicitly (safety,
+actuation limits)
+
+apply u∗
+t
+predicted obstacles
+
+t+0
+
+Key Advantage
+
+t+1
+
+t+2
+
+t+3
+
+t+4
+
+t+5
+
+time
+
+MPC acts as the expert / oracle for IRL and
+imitation learning methods.
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+8 / 19
+
+MPC — Formulation Applied to Our Problem
+At time t, solve:
+min
+
+ut:t+H−1
+
+H−1
+Xh
+
+X
+
+k=0
+
+i
+
+λ1 ∥pt+k −wactive ∥2 +λ2 ∥ut+k ∥2 +λ3
+
+i
+(i)
+max(0, rsafe −dt+k )2 +λ4 ∥pt+H −wactive ∥2
+
+subject to:
+st+k+1 = f (st+k , ut+k ),
+
+Obstacle Prediction
+Constant-velocity model:
+(i)
+(i)
+(i)
+p̂t+k = pt + k∆t · ṗt
+Markov Minds (Team Markov Minds)
+
+ut+k ∈ U,
+
+(i)
+
+(i)
+
+dt+k = ∥pt+k − p̂t+k ∥ ≥ r (i) + rrobot
+
+Waypoint Switching
+Advance to wk+1 when ∥pt − wk ∥ ≤ ϵ
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+9 / 19
+
+IRL — Core Idea
+MPC generates expert demonstrations: D = {(st , uMPC
+)}
+t
+IRL recovers the reward function R(s, u) that explains expert behavior
+A policy πθ is then optimized under the learned reward
+Once learned, the policy runs without the MPC solver at test time
+
+Reward Parameterization
+Assume reward is a linear combination of features ϕ(x, u):
+R(x, u) = w ⊤ ϕ(x, u)
+Features: relative position to active waypoint, relative position and velocity to Top-K nearest
+obstacles, control magnitude.
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+10 / 19
+
+IRL — Maximum Entropy Objective & Gradient
+Maximum Entropy IRL Objective
+Optimize weights λ to maximize likelihood over expert demonstrations Ξ = {ζ̃0 , ζ̃1 , . . .}:
+Z
+X
+⊤
+max
+λ⊤ f (ζ̃i ) − log Z (λ),
+Z (λ) = e λ f (τ ) dτ
+λ
+
+ζ̃i ∈Ξ
+
+This is solved using a gradient ascent algorithm on λ.
+
+Gradient of the Objective
+∇λ J(λ) =
+
+X
+
+f (ζ̃i )
+
+ζ̃i ∈Ξ
+
+|
+
+{z
+
+−
+
+
+
+Eτ ∼p∗ (τ, λ) f (τ )
+|
+{z
+}
+
+expected feature counts under p ∗
+
+}
+
+empirical feature counts
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+11 / 19
+
+IRL — Algorithm
+MaxEnt IRL: Iterative Reward Recovery
+1
+
+Collect expert
+Pdemonstrations Ξ = {ζ̃0 , ζ̃1 , . . .} from MPC. Compute empirical feature
+∗
+counts µ̂ = ζ̃i f (ζ̃i ).
+
+2
+
+Initialize reward weights λ.
+Repeat until convergence:
+
+3
+
+(a)
+(b)
+
+(c)
+
+Compute optimal policy πλ under current reward R(x, u) = λ⊤ ϕ(x, u) (e.g. via RL).
+Roll out πλ ; estimate expected feature counts via Monte Carlo:
+
+
+µ̂(λ) ≈ Eτ ∼p∗ (τ, λ) f (τ )
+Gradient step on λ:
+
+
+λ ← λ + α µ̂∗ − µ̂(λ)
+
+4
+
+Return ŵ ∗ = λ.
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+12 / 19
+
+IRL — Policy Optimization
+Policy Optimization under Learned Reward
+With the recovered reward weights ŵ ∗ = λ, fix R(x, u) = ŵ ∗⊤ ϕ(x, u) and train πθ via any RL
+algorithm:
+"T −1
+#
+X
+t
+max Eπθ
+γ R(xt , ut )
+θ
+
+t=0
+
+Key Properties
+Reward ŵ ∗ is fixed after IRL convergence — policy training is standard RL.
+Policy πθ is a feedforward network: no solver needed at test time.
+Generalizes to obstacle configurations unseen during IRL, since the reward encodes
+intent (waypoint progress, obstacle avoidance) rather than specific trajectories.
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+13 / 19
+
+Behaviour Cloning: Core Idea & Distribution Shift
+1. Supervised Imitation (The Mechanism)
+We train policy πθ by minimizing the Mean Squared Error against the expert:
+min
+θ
+
+1
+|D|
+
+X
+
+∥πθ (s) − u∗ ∥2
+
+(s,u∗ )∈D
+
+2. Flaw: Covariate Shift
+Initial error ϵ leads to unseen states (Ptest ̸= Ptrain ). Errors compound because actions
+determine future inputs, yielding a quadratic bound:
+T
+X
+
+ϵt = ϵ
+
+t=1
+
+Markov Minds (Team Markov Minds)
+
+T (T + 1)
+=⇒ E[Total Error] = O(ϵT 2 )
+2
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+14 / 19
+
+DAgger: Training, Validation & The Best Policy
+DAgger Algorithm [Ross et al., 2011]
+
+The Core Intuition
+
+1: Initialize dataset D = ∅, policy π1
+2: for iteration n = 1, 2, . . . , N do
+3:
+Let πmix = βn π ∗ + (1 − βn )πn
+4:
+Roll out πmix , collect uncertain states Sn
+5:
+Query Expert for true labels:
+6: Dn = {(s, π ∗ (s)) : s ∈ Sn }
+7:
+Aggregate: D ← D ∪ Dn
+8:
+Train/Val Split D (e.g., 80/20 split)
+9:
+Retrain πn+1 on D using early stopping
+10:
+Test πn+1 in pure simulation (no expert)
+11: end for
+12: Return best πi based on test performance
+
+When the Learner drives, it inevitably visits uncertain,
+off-center states. We pause, ask the MPC how to
+recover, and add those exact lessons to D.
+
+Preventing Failure
+Mathematical Validation: We split the dataset to
+monitor validation loss, preventing the neural
+network from memorizing data .
+Unassisted Simulation Testing: We evaluate
+every iteration in a pure simulation without
+expert intervention. Then deploy best iteration.
+
+The Theoretical Guarantee (Ptrain ≈ Ptest )
+Because DAgger actively trains the network on its own natural mistakes, the training and testing
+distributions align. Result: Errors no longer compound quadratically. The policy error drops to a highly
+stable, linear bound of O(ϵT).
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+15 / 19
+
+Architecture: Implementing DAgger for Navigation
+
+1. The Robot’s Eyes (State s)
+
+2. The AI’s Brain (Policy πθ )
+
+The neural network takes a flattened numerical array
+representing the physical simulation state:
+
+Network Architecture: Feedforward MLP
+Mapping: s → (ω, a)
+
+
+
+(i)
+o
+s = prel , v , ∆wk , {d (i) , ṗrel }K
+i=1
+
+ω: Angular velocity (yaw/steering).
+a: Linear acceleration (throttle).
+
+3. The PyBullet Training Pipeline
+1. Rollout πn
+Collect uncertain Sn
+
+2. Query & Agg.
+D ← D ∪ Dn
+
+3. Retrain
+Split & Update πn+1
+
+4. Evaluate
+Unassisted Test
+
+Deploy surviving weights to next iteration
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+16 / 19
+
+Evaluation Metrics
+Navigation Performance
+Waypoint success rate: fraction of wk
+reached within ϵ
+Goal success rate: fraction of full
+episodes completed
+Path length: total distance travelled vs.
+optimal
+
+Safety & Efficiency
+Collision rate: % episodes with obstacle
+contact
+(i)
+
+Minimum clearance: mint dt − rsafe
+Inference time: ms per step
+Expert query count (DAgger only)
+
+Time to goal: episode duration
+
+Baseline Note
+MPC is evaluated as the reference baseline. Due to solver heuristics and finite horizons, it is
+not strictly a theoretical upper bound, but IRL/DAgger are evaluated relative to its
+performance.
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+April 16, 2026
+
+17 / 19
+
+Summary
+
+1
+
+Problem: Navigating waypoints among dynamic
+obstacles formalized as constrained optimal control.
+
+2
+
+MPC: Receding-horizon optimizer; serves as the
+robust expert oracle.
+
+3
+
+IRL: Recovers the latent trajectory reward from
+MPC; deploys via RL without a solver.
+
+4
+
+DAgger: Iteratively queries MPC at learner-visited
+states to eliminate distribution shift with an O(ϵT )
+regret bound.
+
+Markov Minds (Team Markov Minds)
+
+Ground Robot Waypoint Navigation
+
+Key Takeaway
+IRL and DAgger distill the
+expensive MPC solver into a
+lightweight neural policy that
+generalises well.
+
+References
+Ziebart et al., MaxEnt IRL, AAAI 2008.
+Ross et al., DAgger, AISTATS 2011.
+
+April 16, 2026
+
+18 / 19
+
+Thank You
+Questions?
+Ground Robot Waypoint Navigation
+Avoiding Dynamic Obstacles
+
+
