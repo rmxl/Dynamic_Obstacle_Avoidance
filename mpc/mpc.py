@@ -124,9 +124,22 @@ class MPCController:
             options={'ftol': 1e-3, 'disp': False, 'maxiter': 50}
         )
         
-        if res.success:
-            optimal_u = res.x.reshape((self.H, 2))
-            return optimal_u[0] # Return only the first action u_t^*
-        else:
-            # Fallback
-            return np.array([0.0, -1.0])
+        # Extracted action (even if technically 'unsuccessful' due to maxiter, 
+        # the partial solve is vastly superior to a hard brake)
+        optimal_u = res.x.reshape((self.H, 2))
+        
+        # Deadlock Override: If the robot is effectively stopped and the optimizer outputs 
+        # a braking/negative acceleration, it's trapped in a zero-gradient optimization valley.
+        # We manually force it to turn towards the waypoint and accelerate forward.
+        action = optimal_u[0]
+        if v < 0.1 and action[1] <= 0.01:
+            rx, ry, rtheta = current_state[0], current_state[1], current_state[2]
+            target_angle = np.arctan2(w_active[1] - ry, w_active[0] - rx)
+            # Shortest angle diff
+            angle_diff = (target_angle - rtheta + np.pi) % (2 * np.pi) - np.pi
+            
+            # Rotate aggressively and pulse the gas
+            action[0] = np.clip(angle_diff * 2.0, self.omega_bounds[0], self.omega_bounds[1])
+            action[1] = self.a_bounds[1]  # A_MAX
+            
+        return action

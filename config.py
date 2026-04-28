@@ -6,8 +6,8 @@ class EnvConfig:
     RENDER_FPS = 30
     
     # Workspace
-    WORKSPACE_X_BOUNDS = (0.0, 15.0)
-    WORKSPACE_Y_BOUNDS = (0.0, 15.0)
+    WORKSPACE_X_BOUNDS = (0.0, 17.0)
+    WORKSPACE_Y_BOUNDS = (0.0, 17.0)
     
     # Robot
     ROBOT_RADIUS = 0.3
@@ -24,6 +24,7 @@ class EnvConfig:
     NUM_OBSTACLES = 5  # Increased for more challenge
     OBS_RADIUS_RANGE = (0.3, 0.6)
     OBS_SPEED_RANGE = (-1.0, 1.0)
+    OBS_DIR_CHANGE_PROB = 0.05  # 10% chance to change direction
     
     # Reward / Penalties
     REWARD_WAYPOINT = 10.0
