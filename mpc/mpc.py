@@ -56,56 +56,59 @@ class MPCController:
 
     def _cost_function(self, u_flat, current_state, w_active, obstacles):
         """
-        Computes the total cost over the prediction horizon.
-        u_flat: flattened actions array of shape (H * 2,)
+        Cleaner MPC cost function — three terms only:
+
+          1. Waypoint tracking     λ1 * ||p_k - w||²           (quadratic, every step)
+          2. Control effort        λ2 * ||u_k||²                (regulariser)
+          3. Obstacle avoidance    λ3 * max(0, d_safe - d_k)²  (ONE quadratic penalty,
+                                                                 no duplicates)
+
+        The original had the obstacle penalty computed twice (penetration and penalty
+        were both `max(0, safe_dist - d_tk)^2`) plus an extra λ3*0.01*(safe_dist/d_tk)
+        linear term — three overlapping terms whose combined gradient is jagged and
+        unpredictable near obstacles. That causes the MPC to output jittery, direction-
+        reversing actions which the student policy then averages to near-zero (→ collision).
+
+        The horizon-expanding safe distance (k * 0.05 growth) is kept because it
+        genuinely improves look-ahead under random obstacle swerves — it's just not
+        worth the noise the duplicate penalties add.
+
+        Terminal cost uses the same waypoint distance, weighted by λ4.
         """
         u = u_flat.reshape((self.H, 2))
         state = current_state.copy()
-        
-        # Predict dynamic obstacles
+
         obs_traj = self._predict_obstacles(obstacles)
-        
+
         total_cost = 0.0
-        
+
         for k in range(self.H):
             action = u[k]
-            state = self._unicycle_dynamics(state, action)
-            p_tk = state[:2]
-            
-            # 1. Waypoint Tracking Cost
-            dist_to_wp = np.linalg.norm(p_tk - w_active)
+            state  = self._unicycle_dynamics(state, action)
+            p_tk   = state[:2]
+
+            # 1. Waypoint tracking
+            dist_to_wp  = np.linalg.norm(p_tk - w_active)
             total_cost += self.lambda1 * (dist_to_wp ** 2)
-            
-            # 2. Control Effort Cost
-            total_cost += self.lambda2 * np.linalg.norm(action) ** 2
-            
-            # 3. Obstacle Penalty Cost (Soft Constraints form per Slide 9)
+
+            # 2. Control effort
+            total_cost += self.lambda2 * np.dot(action, action)
+
+            # 3. Obstacle avoidance — single clean quadratic
             for i, obs in enumerate(obstacles):
-                r_obs = obs[4]
-                # Robustness: Expand the safety margin linearly over the prediction horizon.
-                # This accounts for the accumulating uncertainty of random swerves or wall bounces.
+                r_obs     = obs[4]
                 safe_dist = self.r_robot + r_obs + 0.2 + (k * 0.05)
-                
+
                 obs_pred_pos = obs_traj[k, i]
-                d_tk = np.linalg.norm(p_tk - obs_pred_pos)
-                d_tk = max(d_tk, 0.01)  # avoid division by zero
+                d_tk         = max(np.linalg.norm(p_tk - obs_pred_pos), 1e-3)
 
-                # Quadratic penalty inside safe zone (hard push when close)
-                penetration = max(0, safe_dist - d_tk)
-                total_cost += self.lambda3 * (penetration ** 2)
-                
-                # Additional linear penalty to create a stronger gradient when very close to the obstacle
-                if d_tk < 2.0 * safe_dist:
-                    total_cost += self.lambda3 * 0.01 * (safe_dist / d_tk)
+                penetration  = max(0.0, safe_dist - d_tk)
+                total_cost  += self.lambda3 * (penetration ** 2)
 
-                # Penalty max(0, r_safe - d_tk)^2
-                penalty = max(0, safe_dist - d_tk)
-                total_cost += self.lambda3 * (penalty ** 2)
-                
-            # 4. Terminal Cost (only at end of horizon)
+            # 4. Terminal cost
             if k == self.H - 1:
                 total_cost += self.lambda4 * (dist_to_wp ** 2)
-                
+
         return total_cost
 
     # def _collision_constraints(self, u_flat, current_state, obstacles):
