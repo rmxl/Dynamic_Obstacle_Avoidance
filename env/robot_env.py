@@ -78,7 +78,14 @@ class GroundRobotEnv(gym.Env):
         
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        
+
+        # difficulty ∈ [0, 1] scales obstacle speed range linearly
+        difficulty = 1.0
+        if options is not None:
+            difficulty = float(np.clip(options.get("difficulty", 1.0), 0.0, 1.0))
+        obs_speed_min = EnvConfig.OBS_SPEED_RANGE[0] * difficulty
+        obs_speed_max = EnvConfig.OBS_SPEED_RANGE[1] * difficulty
+
         if self.client is None:
             return self._get_obs(), {}
             
@@ -142,8 +149,8 @@ class GroundRobotEnv(gym.Env):
                     valid_spawn = True
                     
             r = np.random.uniform(EnvConfig.OBS_RADIUS_RANGE[0], EnvConfig.OBS_RADIUS_RANGE[1])
-            vx = np.random.uniform(EnvConfig.OBS_SPEED_RANGE[0], EnvConfig.OBS_SPEED_RANGE[1])
-            vy = np.random.uniform(EnvConfig.OBS_SPEED_RANGE[0], EnvConfig.OBS_SPEED_RANGE[1])
+            vx = np.random.uniform(obs_speed_min, obs_speed_max)
+            vy = np.random.uniform(obs_speed_min, obs_speed_max)
             
             self.obstacles[i] = [ox, oy, vx, vy, r]
             obs_id = self._create_cylinder(r, 0.2, 10.0, [1, 0, 0, 1], [ox, oy, 0.1])
@@ -260,16 +267,28 @@ class GroundRobotEnv(gym.Env):
                 obs_pos = obs[0:2]
                 obs_r = obs[4]
                 dist_to_obs = np.linalg.norm(robot_pos - obs_pos)
-                if dist_to_obs < (self.r_robot + obs_r):
+                if dist_to_obs <= (self.r_robot + obs_r):
                     reward -= 50.0
                     terminated = True
                     break
+                    
+        # 5. Check out of bounds
+        if robot_pos[0] < EnvConfig.WORKSPACE_X_BOUNDS[0] or robot_pos[0] > EnvConfig.WORKSPACE_X_BOUNDS[1] or \
+           robot_pos[1] < EnvConfig.WORKSPACE_Y_BOUNDS[0] or robot_pos[1] > EnvConfig.WORKSPACE_Y_BOUNDS[1]:
+            terminated = True
+            reward -= 50.0
                     
         # Dist to target penalty
         dist_to_target = np.linalg.norm(robot_pos - self.waypoints[self.current_waypoint_idx])
         reward -= 0.01 * dist_to_target
         
-        return self._get_obs(), reward, terminated, truncated, {}
+        info = {
+            "waypoint_idx": self.current_waypoint_idx,
+            "num_waypoints": len(self.waypoints),
+            "collision": terminated and reward <= -49.0,
+            "goal_reached": terminated and reward >= 59.0,
+        }
+        return self._get_obs(), reward, terminated, truncated, info
         
     def render(self):
         pass # Handled internally by PyBullet GUI
