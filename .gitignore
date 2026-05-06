@@ -22,3 +22,7 @@ data/
 
 # OS specific
 .DS_Store
+
+#dagger checkpoints
+./dagger_checkpoints/
+dagger_checkpoints/

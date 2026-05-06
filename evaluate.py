@@ -45,7 +45,8 @@ class Evaluator:
             r_obs = float(obs[4])
             dist = float(np.linalg.norm(pos - obs_pos))
             clearance = dist - float(r_robot) - r_obs
-            if clearance < self.episode_data["min_clearance"]:
+            
+            if clearance >= 0.0 and clearance < self.episode_data["min_clearance"]:
                 self.episode_data["min_clearance"] = clearance
                 
         self.episode_data["inference_times_ms"].append(float(inference_time_ms))
@@ -113,7 +114,7 @@ def compute_aggregate_metrics(json_file_path):
 
 # Try to import DAgger / BC policy
 try:
-    from bc.dagger import PolicyNet, parse_obs
+    from bc.dagger import PolicyNet, parse_obs, ObsStack
     import torch
     DAGGER_AVAILABLE = True
 except ImportError:
@@ -132,6 +133,7 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
     
     if method == "mpc":
         agent = MPCController(dt=EnvConfig.DT, horizon=10, r_robot=EnvConfig.ROBOT_RADIUS)
+        obs_stack = None
     elif method in ["dagger", "bc"]:
         if not DAGGER_AVAILABLE:
             raise ImportError("Could not import DAgger policy dependencies.")
@@ -140,8 +142,9 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
             
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         agent = PolicyNet().to(device)
-        agent.load_state_dict(torch.load(model_path, map_location=device))
+        agent.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         agent.eval()
+        obs_stack = ObsStack()
     else:
         raise NotImplementedError(f"Evaluation for method '{method}' is not implemented yet.")
         
@@ -150,6 +153,8 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
     for ep in pbar:
         obs, _ = env.reset()
         evaluator.reset_episode(start_pos=env.robot_state[0:2])
+        if obs_stack is not None:
+            obs_stack.reset()
         
         for step in range(max_steps):
             step_start_time = time.time()
@@ -162,7 +167,8 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
                 action = agent.get_action(robot_state, w_active, obstacles)
             elif method in ["dagger", "bc"]:
                 feature = parse_obs(obs)
-                action = agent.predict(feature)
+                stacked_feature = obs_stack.push(feature)
+                action = agent.predict(stacked_feature)
                 obstacles = obs[6:].reshape((EnvConfig.NUM_OBSTACLES, 5)) # for evaluator
             else:
                 action = np.zeros(2)
@@ -209,6 +215,12 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
         print(f"  Minimum Clearance:      {metrics['min_clearance']:.4f}m")
         print(f"  Avg Inference Time:     {metrics['avg_inference_time_ms']:.2f}ms/step")
         print("="*80 + "\n")
+
+    # Save aggregate metrics to a separate JSON file using method name
+    aggregate_metrics_path = os.path.join(save_dir, f"aggregate_metrics_{method}.json")
+    with open(aggregate_metrics_path, "w") as f:
+        json.dump(metrics, f, indent=4)
+    print(f"Saved aggregate metrics to {aggregate_metrics_path}")
 
 
 if __name__ == "__main__":

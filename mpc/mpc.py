@@ -111,32 +111,6 @@ class MPCController:
 
         return total_cost
 
-    # def _collision_constraints(self, u_flat, current_state, obstacles):
-    #     """
-    #     Hard constraint to enforce distance to obstacles is greater than safely allowed.
-    #     """
-    #     u = u_flat.reshape((self.H, 2))
-    #     state = current_state.copy()
-    #     obs_traj = self._predict_obstacles(obstacles)
-        
-    #     min_clearances = []
-    #     for k in range(self.H):
-    #         action = u[k]
-    #         state = self._unicycle_dynamics(state, action)
-    #         p_tk = state[:2]
-            
-    #         for i, obs in enumerate(obstacles):
-    #             r_obs = obs[4]
-    #             # small additional buffer to ensure hard boundary isn't exactly touched
-    #             safe_dist = self.r_robot + r_obs + 0.05 
-    #             obs_pred_pos = obs_traj[k, i]
-    #             d_tk = np.linalg.norm(p_tk - obs_pred_pos)
-                
-    #             # We need d_tk - safe_dist >= 0 for an inequality constraint (type='ineq')
-    #             min_clearances.append(d_tk - safe_dist)
-                
-    #     return np.array(min_clearances)
-
     def get_action(self, current_state, w_active, obstacles):
         """
         Solve the optimal control problem and return the first action.
@@ -151,9 +125,6 @@ class MPCController:
             
         # Bounds for each action timestep
         bounds = [self.omega_bounds, self.a_bounds] * self.H
-        
-        # Define collision avoidance as a hard constraint (>= 0)
-        # constraints = {'type': 'ineq', 'fun': self._collision_constraints, 'args': (current_state, obstacles)}
         
         # Run optimization
         res = minimize(
