@@ -28,16 +28,19 @@ class Evaluator:
         }
         self.last_pos = start_pos
 
-    def step_update(self, pos, current_wp_idx, num_waypoints, obstacles, r_robot, terminated, reward, inference_time_ms):
+    def step_update(self, pos, current_wp_idx, num_waypoints, obstacles, r_robot, terminated, reward, inference_time_ms, info):
         if self.last_pos is not None:
             self.episode_data["path_length"] += float(np.linalg.norm(pos - self.last_pos))
         self.last_pos = pos.copy()
         
         self.episode_data["waypoints_reached"] = int(current_wp_idx)
-        if terminated and reward >= 40.0:
+        
+        # Use the environment's ground truth info dict instead of guessing from reward
+        if info.get("goal_reached", False):
             self.episode_data["goal_success"] = True
-            
-        if terminated and reward <= -40.0:
+            self.episode_data["waypoints_reached"] = int(num_waypoints)
+
+        if info.get("collision", False):
             self.episode_data["collision"] = True
 
         for obs in obstacles:
@@ -87,8 +90,15 @@ def compute_aggregate_metrics(json_file_path):
     goal_successes = sum([1 for ep in data if ep.get("goal_success", False)])
     goal_success_rate = goal_successes / total_episodes
     
-    avg_path_length = np.mean([ep["path_length"] for ep in data])
-    avg_time_to_goal_s = np.mean([ep["time_to_goal_s"] for ep in data])
+    # Only average metrics across actual successful runs to prevent crashing runs from skewing it
+    successful_episodes = [ep for ep in data if ep.get("goal_success", False)]
+    
+    if successful_episodes:
+        avg_path_length = np.mean([ep["path_length"] for ep in successful_episodes])
+        avg_time_to_goal_s = np.mean([ep["time_to_goal_s"] for ep in successful_episodes])
+    else:
+        avg_path_length = 0.0
+        avg_time_to_goal_s = 0.0
     
     collisions = sum([1 for ep in data if ep.get("collision", False)])
     collision_rate = collisions / total_episodes
@@ -175,7 +185,7 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
                 
             inference_time_ms = (time.time() - step_start_time) * 1000.0
             
-            obs, reward, terminated, truncated, _ = env.step(action)
+            obs, reward, terminated, truncated, info = env.step(action)
             
             # Update Evaluator
             evaluator.step_update(
@@ -186,7 +196,8 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
                 r_robot=env.r_robot,
                 terminated=(terminated or truncated),
                 reward=reward,
-                inference_time_ms=inference_time_ms
+                inference_time_ms=inference_time_ms,
+                info=info
             )
             
             if terminated or truncated:

@@ -243,6 +243,10 @@ class GroundRobotEnv(gym.Env):
         terminated = False
         truncated = False
         
+        goal_reached = False
+        has_collided = False
+        out_of_bounds = False
+        
         if dist_to_wp <= self.waypoint_tolerance:
             if self.client is not None:
                 p.resetBasePositionAndOrientation(self.waypoint_ids[self.current_waypoint_idx], [0, 0, -10], [0, 0, 0, 1])
@@ -253,6 +257,7 @@ class GroundRobotEnv(gym.Env):
             else:
                 reward += 50.0 # Reached all waypoints
                 terminated = True
+                goal_reached = True
                 
         # 4. Check Collisions
         if self.client is not None:
@@ -261,6 +266,7 @@ class GroundRobotEnv(gym.Env):
                 if len(contacts) > 0:
                     reward -= 50.0
                     terminated = True
+                    has_collided = True
                     break
         else:
             for obs in self.obstacles:
@@ -270,23 +276,29 @@ class GroundRobotEnv(gym.Env):
                 if dist_to_obs <= (self.r_robot + obs_r):
                     reward -= 50.0
                     terminated = True
+                    has_collided = True
                     break
                     
         # 5. Check out of bounds
         if robot_pos[0] < EnvConfig.WORKSPACE_X_BOUNDS[0] or robot_pos[0] > EnvConfig.WORKSPACE_X_BOUNDS[1] or \
            robot_pos[1] < EnvConfig.WORKSPACE_Y_BOUNDS[0] or robot_pos[1] > EnvConfig.WORKSPACE_Y_BOUNDS[1]:
             terminated = True
+            out_of_bounds = True
             reward -= 50.0
                     
         # Dist to target penalty
         dist_to_target = np.linalg.norm(robot_pos - self.waypoints[self.current_waypoint_idx])
         reward -= 0.01 * dist_to_target
         
+        # Determine explicit success: Can't have a goal success if there's a collision on the same frame.
+        actual_goal_reached = goal_reached and not has_collided and not out_of_bounds
+        
         info = {
             "waypoint_idx": self.current_waypoint_idx,
             "num_waypoints": len(self.waypoints),
-            "collision": terminated and reward <= -49.0,
-            "goal_reached": terminated and reward >= 59.0,
+            "collision": has_collided,
+            "out_of_bounds": out_of_bounds,
+            "goal_reached": actual_goal_reached,
         }
         return self._get_obs(), reward, terminated, truncated, info
         
