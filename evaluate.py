@@ -90,6 +90,12 @@ def compute_aggregate_metrics(json_file_path):
     goal_successes = sum([1 for ep in data if ep.get("goal_success", False)])
     goal_success_rate = goal_successes / total_episodes
     
+    collisions = sum([1 for ep in data if ep.get("collision", False)])
+    collision_rate = collisions / total_episodes
+    
+    timeouts = sum([1 for ep in data if not ep.get("goal_success", False) and not ep.get("collision", False)])
+    timeout_rate = timeouts / total_episodes
+    
     # Only average metrics across actual successful runs to prevent crashing runs from skewing it
     successful_episodes = [ep for ep in data if ep.get("goal_success", False)]
     
@@ -99,9 +105,6 @@ def compute_aggregate_metrics(json_file_path):
     else:
         avg_path_length = 0.0
         avg_time_to_goal_s = 0.0
-    
-    collisions = sum([1 for ep in data if ep.get("collision", False)])
-    collision_rate = collisions / total_episodes
     
     clearances = [ep["min_clearance"] if ep["min_clearance"] != 999.0 else float('inf') for ep in data]
     min_clearance = min(clearances) if clearances else float('inf')
@@ -114,9 +117,10 @@ def compute_aggregate_metrics(json_file_path):
     return {
         "waypoint_success_rate": waypoint_success_rate * 100.0,
         "goal_success_rate": goal_success_rate * 100.0,
+        "collision_rate": collision_rate * 100.0,
+        "timeout_rate": timeout_rate * 100.0,
         "avg_path_length": avg_path_length,
         "avg_time_to_goal_s": avg_time_to_goal_s,
-        "collision_rate": collision_rate * 100.0,
         "min_clearance": min_clearance,
         "avg_inference_time_ms": avg_inference_time,
         "num_episodes": total_episodes
@@ -200,7 +204,7 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
                 info=info
             )
             
-            if terminated or truncated:
+            if terminated or truncated or step == max_steps - 1:
                 evaluator.finish_episode()
                 break
                 
@@ -221,6 +225,7 @@ def evaluate_method(method, num_episodes, model_path=None, headless=True, max_st
         print(f"  Goal Success Rate:      {metrics['goal_success_rate']:.2f}%")
         print(f"  Waypoint Success Rate:  {metrics['waypoint_success_rate']:.2f}%")
         print(f"  Collision Rate:         {metrics['collision_rate']:.2f}%")
+        print(f"  Timeout Rate:           {metrics['timeout_rate']:.2f}%")
         print(f"  Average Time to Goal:   {metrics['avg_time_to_goal_s']:.2f}s")
         print(f"  Average Path Length:    {metrics['avg_path_length']:.2f}m")
         print(f"  Minimum Clearance:      {metrics['min_clearance']:.4f}m")
